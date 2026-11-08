@@ -1,17 +1,16 @@
 #!/bin/sh
 
-# Start Tailscale in userspace mode
-tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+# Start Tailscale background daemon
+tailscaled --tun=userspace-networking &
 sleep 2
 
-# Connect to Tailscale network using Auth Key
+# Authenticate Tailscale if key is provided
 if [ -n "$TAILSCALE_AUTHKEY" ]; then
-    echo "Connecting to Tailscale..."
-    tailscale up --authkey=${TAILSCALE_AUTHKEY} --hostname=ai-camera-cloud --accept-routes
-    echo "Tailscale Connected!"
-else
-    echo "Warning: TAILSCALE_AUTHKEY is not set."
+    echo "Connecting Tailscale network..."
+    tailscale up --authkey="${TAILSCALE_AUTHKEY}" --hostname=ai-camera-cloud --accept-routes
+    echo "Tailscale Connected Successfully!"
 fi
 
-# Run AI Web Application
+# Run Web App directly
+echo "Starting AI Web Application..."
 python app.py
