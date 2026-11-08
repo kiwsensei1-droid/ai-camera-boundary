@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🎯 ตรวจจับคนข้ามเส้น (Line Boundary)</title>
+<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0e14;--surf:#151921;--surf2:#1f2430;--border:#2d3342;
+  --green:#10b981;--green-bg:rgba(16,185,129,.15);
+  --red:#ef4444;  --red-bg:rgba(239,68,68,.15);
+  --blue:#3b82f6; --yellow:#f59e0b;
+  --text:#e2e8f0; --muted:#94a3b8;--accent:#2563eb;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column;overflow:hidden}
+
+/* HEADER */
+.hdr{background:var(--surf);border-bottom:1px solid var(--border);
+  padding:10px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.hdr-left{display:flex;align-items:center;gap:10px}
+.hdr-title{font-size:1rem;font-weight:700;display:flex;align-items:center;gap:6px}
+.engine-tag{background:rgba(59,130,246,.2);color:var(--blue);border:1px solid rgba(59,130,246,.4);
+  padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:600}
+.badge{padding:4px 10px;border-radius:20px;font-size:.72rem;font-weight:700;
+  letter-spacing:.3px;text-transform:uppercase}
+.badge.idle{background:var(--surf2);color:var(--muted);border:1px solid var(--border)}
+.badge.connecting{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid var(--yellow)}
+.badge.live{background:var(--green-bg);color:var(--green);border:1px solid var(--green)}
+.badge.warn{background:var(--red-bg);color:var(--red);border:1px solid var(--red);animation:pulse .8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* LAYOUT */
+.main{display:grid;grid-template-columns:1fr 360px;flex:1;min-height:0}
+@media (max-width: 900px){
+  html,body{overflow:auto}
+  .main{display:flex;flex-direction:column;min-height:auto}
+  .right{min-height:420px}
+}
+.left{display:flex;flex-direction:column;gap:8px;padding:12px;overflow:hidden}
+.right{border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--surf)}
+
+/* CONTROLS */
+.ctrl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lbl{color:var(--muted);font-size:.78rem;font-weight:600;white-space:nowrap}
+.inp{background:var(--surf2);border:1px solid var(--border);color:var(--text);
+  padding:7px 10px;border-radius:6px;font-size:.82rem;flex:1;min-width:180px}
+.inp:focus{outline:none;border-color:var(--blue)}
+.btn{padding:7px 14px;border-radius:6px;border:none;cursor:pointer;
+  font-size:.82rem;font-weight:600;transition:.15s;white-space:nowrap}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:not(:disabled):hover{filter:brightness(1.15)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-danger {background:var(--red);color:#fff}
+.btn-ghost  {background:var(--surf2);color:var(--text);border:1px solid var(--border)}
+.btn-green  {background:var(--green);color:#fff}
+.btn-yellow {background:#b45309;color:#fff}
+.btn-purple {background:#7c3aed;color:#fff}
+
+.slider-wrap{display:flex;align-items:center;gap:8px;background:var(--surf);padding:4px 10px;border-radius:6px;border:1px solid var(--border)}
+.slider-wrap input[type=range]{flex:1;height:4px;accent-color:var(--blue);cursor:pointer}
+.conf-val{font-size:.8rem;color:var(--blue);font-weight:700;min-width:32px;text-align:right}
+
+/* VIDEO STAGE */
+.vid-container{
+  position:relative;background:#000;border-radius:8px;
+  border:1px solid var(--border);flex:1;min-height:260px;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+#vfeed{width:100%;height:100%;object-fit:contain;display:block}
+#zcanvas{position:absolute;top:0;left:0;width:100%;height:100%;cursor:default}
+.draw-hint{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  background:rgba(37,99,235,.95);color:#fff;padding:6px 16px;
+  border-radius:20px;font-size:.82rem;font-weight:600;pointer-events:none;display:none;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.conn-overlay{
+  position:absolute;inset:0;display:none;flex-direction:column;
+  align-items:center;justify-content:center;background:rgba(0,0,0,.75);gap:12px}
+.spinner{width:36px;height:36px;border:3px solid var(--border);
+  border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)}
+.stat-box{padding:14px 6px;text-align:center;border-right:1px solid var(--border)}
+.stat-box:last-child{border-right:none}
+.stat-num{font-size:1.9rem;font-weight:800;line-height:1}
+.stat-label{font-size:.65rem;color:var(--muted);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.stat-box.all .stat-num{color:var(--blue)}
+.stat-box.in .stat-num{color:var(--green)}
+.stat-box.out .stat-num{color:var(--red)}
+
+/* LOGS */
+.log-header{padding:10px 14px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.log-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:5px}
+.log-item{display:flex;align-items:center;gap:8px;padding:7px 10px;
+  border-radius:6px;font-size:.8rem;font-weight:500;animation:slideIn .2s ease}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.log-item.IN {background:var(--green-bg);border:1px solid rgba(16,185,129,.25);color:var(--green)}
+.log-item.OUT{background:var(--red-bg);  border:1px solid rgba(239,68,68,.25); color:var(--red)}
+.log-time{font-family:monospace;font-size:.72rem;color:var(--muted);white-space:nowrap}
+.empty-hint{text-align:center;color:var(--muted);font-size:.82rem;padding:40px 16px;line-height:1.8}
+</style>
+</head>
+<body>
+
+<!-- TOP HEADER -->
+<header class="hdr">
+  <div class="hdr-left">
+    <span class="hdr-title">🎯 ตรวจจับคนข้ามเส้น (Tripwire Boundary)</span>
+    <span class="engine-tag">⚡ {{ model_name }}</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="alertText" style="display:none;font-size:.82rem;color:var(--red);font-weight:700">🚨 คนเดินเกินเส้น!</span>
+    <span id="camBadge" class="badge idle">● รอเริ่มกล้อง</span>
+  </div>
+</header>
+
+<!-- MAIN LAYOUT -->
+<div class="main">
+
+  <!-- LEFT: CAMERA & CONTROLS -->
+  <div class="left">
+
+    <!-- CAMERA INPUT -->
+    <div class="ctrl-bar">
+      <span class="lbl">📡 RTSP กล้อง:</span>
+      <input id="rtspInput" class="inp" value="{{ default_rtsp }}" spellcheck="false">
+      <button id="btnStart" class="btn btn-primary" onclick="startCamera()">▶ เชื่อมต่อกล้อง</button>
+      <button id="btnStop"  class="btn btn-danger"  onclick="stopCamera()" disabled>■ ตัดการเชื่อมต่อ</button>
+    </div>
+
+    <!-- AI SENSITIVITY -->
+    <div class="ctrl-bar">
+      <span class="lbl">🎯 ความไว AI (Confidence):</span>
+      <div class="slider-wrap" style="flex:1">
+        <input type="range" id="confRange" min="20" max="85" value="50" oninput="changeConfidence(this.value)">
+        <span class="conf-val" id="confLabel">0.50</span>
+      </div>
+      <span class="lbl" style="font-size:.72rem;color:var(--muted)">💡 ยิ่งสูงยิ่งกรองวัตถุอื่นออกแม่นยำ</span>
+    </div>
+
+    <!-- VIDEO STAGE -->
+    <div class="vid-container" id="vidContainer">
+      <img id="vfeed" src="" alt="Live Stream">
+      <canvas id="zcanvas"></canvas>
+      <div class="draw-hint" id="drawHint">✏️ คลิก 2 จุดบนหน้าจอ เพื่อกำหนดแนวเส้นกั้น</div>
+      <div class="conn-overlay" id="connOverlay">
+        <div class="spinner"></div>
+        <span style="font-size:.85rem;color:var(--muted)">กำลังดึงสัญญาณจากกล้องวงจรปิด...</span>
+      </div>
+    </div>
+
+    <!-- LINE DRAW TOOLS -->
+    <div class="ctrl-bar">
+      <button id="btnDraw"   class="btn btn-ghost"  onclick="toggleDrawLine()">✏️ วาดเส้นกั้น</button>
+      <button id="btnInvert" class="btn btn-purple" onclick="invertLineSide()">⇄ สลับฝั่งใน/นอกเส้น</button>
+      <button id="btnReset"  class="btn btn-yellow" onclick="resetLineBoundary()">↺ ลบเส้น</button>
+      <span class="lbl" style="margin-left:auto" id="lineStateHint">สถานะเส้น: ยังไม่ได้วาดเส้น</span>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: REALTIME MONITORING & LOGS -->
+  <div class="right">
+
+    <!-- REAL-TIME STATS -->
+    <div class="stats-grid">
+      <div class="stat-box all">
+        <div class="stat-num" id="statTotal">0</div>
+        <div class="stat-label">👤 คนที่พบ</div>
+      </div>
+      <div class="stat-box in">
+        <div class="stat-num" id="statIn">0</div>
+        <div class="stat-label">🟢 ในเส้นปกติ</div>
+      </div>
+      <div class="stat-box out">
+        <div class="stat-num" id="statOut">0</div>
+        <div class="stat-label">🔴 เกินเส้น</div>
+      </div>
+    </div>
+
+    <!-- LOG HEADER -->
+    <div class="log-header">
+      <span>📋 บันทึกประวัติการเดินข้ามเส้น</span>
+      <button class="btn btn-ghost" onclick="clearAllLogs()" style="padding:3px 8px;font-size:.7rem">🗑 ล้างบันทึก</button>
+    </div>
+
+    <!-- LOG CONTAINER -->
+    <div class="log-list" id="logList">
+      <div class="empty-hint" id="emptyHint">
+        📭 ยังไม่มีประวัติการข้ามเส้น<br>
+        <small style="color:var(--muted)">คลิก "วาดเส้นกั้น" เพื่อสร้างเส้นตรวจจับ</small>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ==================== SOCKET.IO ====================
+const socket = io();
+
+socket.on("init_state", data => {
+  if (data.running) setLiveStatus(true);
+  if (data.stats) updateStatsDisplay(data.stats);
+  if (data.logs?.length) data.logs.forEach(appendLogEntry);
+  if (data.line?.length === 2) {
+    document.getElementById("lineStateHint").textContent = "สถานะเส้น: กำหนดแล้ว ✓";
+  }
+});
+
+socket.on("camera_started", () => {
+  setLiveStatus(true);
+  document.getElementById("connOverlay").style.display = "none";
+});
+
+socket.on("camera_stopped", () => {
+  setLiveStatus(false);
+  document.getElementById("connOverlay").style.display = "none";
+  document.getElementById("vfeed").src = "";
+});
+
+socket.on("frame", base64Jpeg => {
+  document.getElementById("vfeed").src = "data:image/jpeg;base64," + base64Jpeg;
+  const overlay = document.getElementById("connOverlay");
+  if (overlay.style.display !== "none") overlay.style.display = "none";
+});
+
+socket.on("stats", data => updateStatsDisplay(data));
+socket.on("log_event", logItem => appendLogEntry(logItem));
+
+socket.on("line_set", res => {
+  document.getElementById("lineStateHint").textContent = "สถานะเส้น: กำหนดแล้ว ✓";
+});
+socket.on("line_side_inverted", res => {
+  alert("⇄ สลับฝั่งตรวจจับแล้ว (ฝั่งเกินเส้น ↔ ฝั่งปลอดภัย)");
+});
+socket.on("line_reset", () => {
+  document.getElementById("lineStateHint").textContent = "สถานะเส้น: ยังไม่ได้วาดเส้น";
+});
+socket.on("logs_cleared", () => {
+  document.getElementById("logList").innerHTML = '<div class="empty-hint">📭 ล้างบันทึกแล้ว</div>';
+});
+socket.on("error_msg", err => {
+  alert("❌ " + err.message);
+  setLiveStatus(false);
+});
+
+// ==================== CAMERA CONTROLS ====================
+function startCamera() {
+  const url = document.getElementById("rtspInput").value.trim();
+  document.getElementById("btnStart").disabled = true;
+  updateBadge("connecting", "◌ กำลังเชื่อมต่อ...");
+  document.getElementById("connOverlay").style.display = "flex";
+  socket.emit("start_camera", { source: url });
+}
+
+function stopCamera() {
+  socket.emit("stop_camera");
+  updateBadge("idle", "◌ กำลังหยุด...");
+}
+
+function setLiveStatus(isLive) {
+  document.getElementById("btnStart").disabled = isLive;
+  document.getElementById("btnStop").disabled  = !isLive;
+  if (!isLive) updateBadge("idle", "● รอเริ่มกล้อง");
+}
+
+function updateBadge(cls, text) {
+  const badge = document.getElementById("camBadge");
+  badge.className = "badge " + cls;
+  badge.textContent = text;
+}
+
+function changeConfidence(val) {
+  const conf = (val / 100).toFixed(2);
+  document.getElementById("confLabel").textContent = conf;
+  socket.emit("set_conf", { conf: parseFloat(conf) });
+}
+
+function updateStatsDisplay(d) {
+  document.getElementById("statTotal").textContent = d.persons;
+  document.getElementById("statIn").textContent    = d.inside;
+  document.getElementById("statOut").textContent   = d.outside;
+
+  const alertElem = document.getElementById("alertText");
+  const badge = document.getElementById("camBadge");
+
+  if (d.outside > 0) {
+    alertElem.style.display = "inline";
+    if (!badge.classList.contains("idle")) updateBadge("warn", `🚨 เกินเส้น ${d.outside} คน!`);
+  } else {
+    alertElem.style.display = "none";
+    if (!badge.classList.contains("idle") && !badge.classList.contains("connecting")) {
+      updateBadge("live", "● ปลอดภัย (ในเส้น)");
+    }
+  }
+}
+
+function appendLogEntry(entry) {
+  const list = document.getElementById("logList");
+  document.getElementById("emptyHint")?.remove();
+
+  const item = document.createElement("div");
+  item.className = `log-item ${entry.status}`;
+  item.innerHTML = `
+    <span>${entry.status === "IN" ? "🟢" : "🚨"}</span>
+    <span class="log-time">${entry.ts}</span>
+    <span>${entry.msg}</span>
+  `;
+  list.appendChild(item);
+  list.scrollTop = list.scrollHeight;
+
+  if (list.querySelectorAll(".log-item").length > 250) {
+    list.querySelector(".log-item").remove();
+  }
+}
+
+function clearAllLogs() {
+  socket.emit("clear_logs");
+}
+
+// ==================== LINE DRAWING (2 POINTS) ====================
+let isDrawingLine = false;
+let canvasLinePts = [];
+let frameLinePts = [];
+
+const canvas = document.getElementById("zcanvas");
+const ctx = canvas.getContext("2d");
+const videoImg = document.getElementById("vfeed");
+
+function resizeCanvas() {
+  const container = document.getElementById("vidContainer");
+  canvas.width = container.clientWidth;
+  canvas.height = container.clientHeight;
+  renderLinePreview();
+}
+window.addEventListener("resize", resizeCanvas);
+videoImg.addEventListener("load", resizeCanvas);
+setTimeout(resizeCanvas, 400);
+
+function mapCanvasToFrame(cx, cy) {
+  if (!videoImg.naturalWidth) return [Math.round(cx), Math.round(cy)];
+  const nw = videoImg.naturalWidth, nh = videoImg.naturalHeight;
+  const cw = canvas.width, ch = canvas.height;
+  const naturalAspect = nw / nh;
+  const canvasAspect = cw / ch;
+
+  let renderW, renderH, offsetX = 0, offsetY = 0;
+  if (naturalAspect > canvasAspect) {
+    renderW = cw;
+    renderH = cw / naturalAspect;
+    offsetY = (ch - renderH) / 2;
+  } else {
+    renderH = ch;
+    renderW = ch * naturalAspect;
+    offsetX = (cw - renderW) / 2;
+  }
+
+  const fx = Math.round((cx - offsetX) / renderW * nw);
+  const fy = Math.round((cy - offsetY) / renderH * nh);
+  return [Math.max(0, Math.min(nw, fx)), Math.max(0, Math.min(nh, fy))];
+}
+
+canvas.addEventListener("click", e => {
+  if (!isDrawingLine) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  canvasLinePts.push({cx, cy});
+  frameLinePts.push(mapCanvasToFrame(cx, cy));
+
+  renderLinePreview();
+
+  // วาดครบ 2 จุด -> ส่งเส้นไปยัง Server ทันที
+  if (canvasLinePts.length === 2) {
+    socket.emit("set_line", { points: frameLinePts });
+    isDrawingLine = false;
+    canvasLinePts = [];
+    frameLinePts = [];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    document.getElementById("btnDraw").textContent = "✏️ วาดเส้นกั้นใหม่";
+    document.getElementById("btnDraw").className = "btn btn-ghost";
+    document.getElementById("drawHint").style.display = "none";
+    canvas.style.cursor = "default";
+  }
+});
+
+function renderLinePreview() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!canvasLinePts.length) return;
+
+  // วาดจุดแรก
+  ctx.beginPath();
+  ctx.arc(canvasLinePts[0].cx, canvasLinePts[0].cy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = "#f59e0b";
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // วาดเส้นถ้ามี 2 จุด
+  if (canvasLinePts.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(canvasLinePts[0].cx, canvasLinePts[0].cy);
+    ctx.lineTo(canvasLinePts[1].cx, canvasLinePts[1].cy);
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(canvasLinePts[1].cx, canvasLinePts[1].cy, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+function toggleDrawLine() {
+  isDrawingLine = !isDrawingLine;
+  const btn = document.getElementById("btnDraw");
+  const hint = document.getElementById("drawHint");
+  canvas.style.cursor = isDrawingLine ? "crosshair" : "default";
+
+  if (isDrawingLine) {
+    canvasLinePts = [];
+    frameLinePts = [];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    btn.textContent = "✖ ยกเลิก";
+    btn.className = "btn btn-danger";
+    hint.style.display = "block";
+  } else {
+    btn.textContent = "✏️ วาดเส้นกั้น";
+    btn.className = "btn btn-ghost";
+    hint.style.display = "none";
+  }
+}
+
+function invertLineSide() {
+  socket.emit("invert_line_side");
+}
+
+function resetLineBoundary() {
+  socket.emit("reset_line");
+  isDrawingLine = false;
+  canvasLinePts = [];
+  frameLinePts = [];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById("btnDraw").textContent = "✏️ วาดเส้นกั้น";
+  document.getElementById("btnDraw").className = "btn btn-ghost";
+  document.getElementById("drawHint").style.display = "none";
+  canvas.style.cursor = "default";
+}
+
+resizeCanvas();
+</script>
+</body>
+</html>

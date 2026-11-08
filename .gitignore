@@ -1,0 +1,12 @@
+# Virtual environments & Cache
+__pycache__/
+*.pyc
+.env
+.venv/
+
+# Large binaries (downloaded during build)
+cloudflared.exe
+yolov8s.pt
+*.mp4
+*.avi
+screenshots/
