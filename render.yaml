@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: camera-ai
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    envVars:
+      - key: PORT
+        value: 5000
